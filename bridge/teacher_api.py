@@ -32,8 +32,8 @@ class TeacherBridge:
         self.provider = provider.lower()
         self.api_key = api_key or os.getenv("OPENAI_API_KEY") or os.getenv("CODEX_API_KEY")
         self.codex_cmd = codex_cmd
-        # Default to non-interactive exec mode with model flag; callers can override.
-        self.codex_args = codex_args or ["exec", "--model", self.model_name]
+        # Default to non-interactive exec; callers can override args.
+        self.codex_args = codex_args or ["exec"]
 
         self._client = None
         self._codex_available = shutil.which(self.codex_cmd) is not None
