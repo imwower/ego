@@ -135,9 +135,11 @@ Responsibilities:
             cmd = [self.codex_cmd]
             if self.codex_args:
                 cmd.extend(self.codex_args)
+            # Pass prompt as a positional argument (non-interactive), e.g.
+            # codex exec --model gpt-4o-mini "<prompt>"
+            cmd.append(prompt)
             result = subprocess.run(
                 cmd,
-                input=prompt,
                 text=True,
                 capture_output=True,
                 check=True,
