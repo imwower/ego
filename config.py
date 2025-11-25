@@ -49,6 +49,9 @@ class HyperParams:
     text_dim: int = 32
     assoc_dim: int = 128
 
+    # Language cortex
+    vocab_size: int = 4096
+
     # SNN dynamics
     membrane_decay: float = 0.1
     spike_threshold: float = 1.0
