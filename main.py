@@ -41,7 +41,8 @@ def main() -> None:
     proto = ProtoSelf(hparams=hp)
     snn = SNNEngine(hparams=hp)
     cortex = LanguageCortex(hparams=hp)
-    teacher = TeacherBridge(use_mock=True)
+    # Try codex CLI by default; falls back to mock if unavailable.
+    teacher = TeacherBridge(use_mock=False, provider="codex_cli")
 
     steps = 150
     error_threshold = 0.3

@@ -1,11 +1,15 @@
-"""Teacher bridge to query Codex (or mock) when the SNN is confused/surprised.
+"""Teacher bridge to query Codex (CLI or API) when the SNN is confused/surprised.
 
 The bridge formats internal SNN context into a mentoring-style system prompt.
-Default provider is Codex (OpenAI ChatCompletion). If no API key/client is
-available, it returns a deterministic mock reply so tests stay offline.
+Providers:
+- codex_cli (default): call local `codex` command line tool if available.
+- codex_api: use OpenAI chat API if the package/key are available.
+Otherwise, a deterministic mock reply keeps tests offline.
 """
 
 import os
+import shutil
+import subprocess
 from typing import Any, Dict, Optional
 
 try:  # pragma: no cover - optional dependency
@@ -20,17 +24,25 @@ class TeacherBridge:
         model_name: str = "gpt-4o-mini",
         api_key: Optional[str] = None,
         use_mock: bool = False,
-        provider: str = "codex",
+        provider: str = "codex_cli",
+        codex_cmd: str = "codex",
     ) -> None:
         self.model_name = model_name
         self.provider = provider.lower()
         self.api_key = api_key or os.getenv("OPENAI_API_KEY") or os.getenv("CODEX_API_KEY")
-        self.use_mock = use_mock or self.api_key is None or OpenAI is None
+        self.codex_cmd = codex_cmd
 
-        if not self.use_mock and self.provider == "codex" and OpenAI is not None:
-            self._client = OpenAI(api_key=self.api_key)
+        self._client = None
+        self._codex_available = shutil.which(self.codex_cmd) is not None
+
+        if self.provider == "codex_cli":
+            self.use_mock = use_mock or not self._codex_available
+        elif self.provider == "codex_api":
+            self.use_mock = use_mock or self.api_key is None or OpenAI is None
+            if not self.use_mock and OpenAI is not None:
+                self._client = OpenAI(api_key=self.api_key)
         else:
-            self._client = None
+            raise ValueError("Unknown provider; use 'codex_cli' or 'codex_api'.")
 
     def ask_gemini(self, context_data: Dict[str, Any], trigger_type: str) -> Dict[str, str]:
         """Query Codex (or mock) with a prompt built from SNN context.
@@ -53,9 +65,12 @@ class TeacherBridge:
 
         prompt = self._build_prompt(context_data, trigger)
 
-        if self.use_mock or self._client is None:
+        reply: str
+        if self.use_mock:
             reply = self._mock_reply(context_data, trigger)
-        else:
+        elif self.provider == "codex_cli":
+            reply = self._call_codex_cli(prompt)
+        else:  # codex_api
             response = self._client.chat.completions.create(
                 model=self.model_name,
                 messages=[
@@ -107,6 +122,22 @@ Responsibilities:
             f"[MOCK {trigger}] Detected high error={pe}. "
             f"If pain={pain}, damp irrelevant spikes; focus on recent pattern and predict its next token."
         )
+
+    def _call_codex_cli(self, prompt: str) -> str:
+        """Invoke local codex CLI; fallback to mock on error."""
+
+        try:
+            result = subprocess.run(
+                [self.codex_cmd, "--model", self.model_name],
+                input=prompt,
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            output = result.stdout.strip()
+            return output or "[CODEX_CLI] Empty response"
+        except Exception as exc:  # pragma: no cover - environment dependent
+            return f"[CODEX_CLI ERROR] {exc}. Prompt hint: {prompt[:80]}..."
 
 
 __all__ = ["TeacherBridge"]
