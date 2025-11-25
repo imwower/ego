@@ -115,19 +115,17 @@ class TeacherBridge:
         spike_str = " | ".join(f"{k}:{v}" for k, v in spikes.items()) or "none"
 
         system_prompt = f"""
-你是 Codex，作为神经形态 SNN (Ego-Sphere) 的导师，请用中文回答。
-Trigger: {trigger}
+你是 Codex，作为神经形态 SNN (Ego-Sphere) 的导师，用中文回答，控制在 80 字以内。
 触发类型: {trigger}
-预测误差范数 (prediction error norm): {pe}
-原我状态 (Proto-self): {proto_str}
-近期脉冲 (Recent spikes): {spike_str}
-备注 (Notes): {notes}
+预测误差范数: {pe}
+原我状态: {proto_str}
+近期脉冲: {spike_str}
+备注: {notes}
 
-职责 (Responsibilities):
-- 解释惊讶/困惑信号。
-- 用中文给出 <=80 字的教学提示，降低熵。
+要求:
+- 解释惊讶/困惑信号，给出具体教学提示，避免空话。
 - 提供 SNN 可整合的简单规则/模式。
-- 语气具体、教学风格、避免空话。
+- 只输出中文正文，不要附加前后缀或多余标头。
 """
         return system_prompt.strip()
 
@@ -157,10 +155,30 @@ Trigger: {trigger}
                 check=True,
             )
             output = result.stdout.strip()
-            return (output or "[CODEX_CLI] Empty response", True, result.stderr.strip())
+            cleaned = self._strip_cli_banner(output)
+            return (cleaned or "[CODEX_CLI] Empty response", True, output)
         except Exception as exc:  # pragma: no cover - environment dependent
             err = getattr(exc, "stderr", "") or str(exc)
             return (err, False, err)
+
+    def _strip_cli_banner(self, text: str) -> str:
+        """Remove known Codex CLI header/footer blocks, keep main content."""
+
+        if not text:
+            return text
+        lines = [ln for ln in text.splitlines() if ln.strip()]
+        # Drop lines that look like codex metadata.
+        filtered = [
+            ln
+            for ln in lines
+            if not (
+                ln.startswith("OpenAI Codex")
+                or ln.startswith("--------")
+                or ln.startswith("workdir:")
+                or ln.startswith("model:")
+            )
+        ]
+        return "\n".join(filtered).strip()
 
 
 __all__ = ["TeacherBridge"]

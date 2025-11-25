@@ -48,5 +48,5 @@ def test_codex_cli_success_returns_output():
     )
     out = bridge.ask_gemini({"prediction_error_norm": 0.1}, trigger_type="CONFUSION")
     assert out["provider_ok"] is True
-    assert "Trigger:" in out["reply"]
+    assert "触发类型" in out["reply"]
     assert "CONFUSION" in out["reply"]
