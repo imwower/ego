@@ -71,7 +71,9 @@ class TeacherBridge:
         if self.use_mock:
             reply = self._mock_reply(context_data, trigger)
         elif self.provider == "codex_cli":
-            reply = self._call_codex_cli(prompt)
+            reply, ok = self._call_codex_cli(prompt)
+            if not ok:
+                reply = self._mock_reply(context_data, trigger)
         else:  # codex_api
             response = self._client.chat.completions.create(
                 model=self.model_name,
@@ -125,8 +127,8 @@ Responsibilities:
             f"If pain={pain}, damp irrelevant spikes; focus on recent pattern and predict its next token."
         )
 
-    def _call_codex_cli(self, prompt: str) -> str:
-        """Invoke local codex CLI; fallback to mock on error."""
+    def _call_codex_cli(self, prompt: str) -> tuple[str, bool]:
+        """Invoke local codex CLI; report success flag."""
 
         try:
             cmd = [self.codex_cmd]
@@ -141,9 +143,9 @@ Responsibilities:
                 check=True,
             )
             output = result.stdout.strip()
-            return output or "[CODEX_CLI] Empty response"
-        except Exception as exc:  # pragma: no cover - environment dependent
-            return f"[CODEX_CLI ERROR] {exc}. Prompt hint: {prompt[:80]}..."
+            return (output or "[CODEX_CLI] Empty response", True)
+        except Exception:  # pragma: no cover - environment dependent
+            return ("", False)
 
 
 __all__ = ["TeacherBridge"]

@@ -27,3 +27,10 @@ def test_invalid_trigger_raises():
     bridge = TeacherBridge(use_mock=True)
     with pytest.raises(ValueError):
         bridge.ask_gemini({}, trigger_type="OTHER")
+
+
+def test_codex_cli_failure_falls_back_to_mock():
+    # Use a command guaranteed to fail (non-zero exit) but present on most systems: "false".
+    bridge = TeacherBridge(use_mock=False, provider="codex_cli", codex_cmd="false")
+    out = bridge.ask_gemini({"prediction_error_norm": 0.5}, trigger_type="CONFUSION")
+    assert "MOCK" in out["reply"]
