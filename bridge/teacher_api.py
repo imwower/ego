@@ -115,18 +115,19 @@ class TeacherBridge:
         spike_str = " | ".join(f"{k}:{v}" for k, v in spikes.items()) or "none"
 
         system_prompt = f"""
-You are Codex acting as a mentor/teacher for a neuromorphic SNN (Ego-Sphere).
+你是 Codex，作为神经形态 SNN (Ego-Sphere) 的导师，请用中文回答。
 Trigger: {trigger}
-Prediction error norm: {pe}
-Proto-self: {proto_str}
-Recent spikes: {spike_str}
-Context notes: {notes}
+触发类型: {trigger}
+预测误差范数 (prediction error norm): {pe}
+原我状态 (Proto-self): {proto_str}
+近期脉冲 (Recent spikes): {spike_str}
+备注 (Notes): {notes}
 
-Responsibilities:
-- Interpret the surprise/confusion signal.
-- Provide a concise teaching tip (<=80 words) to reduce entropy.
-- Suggest a simple rule or pattern the SNN can integrate.
-- Keep tone instructional and concrete (no fluff).
+职责 (Responsibilities):
+- 解释惊讶/困惑信号。
+- 用中文给出 <=80 字的教学提示，降低熵。
+- 提供 SNN 可整合的简单规则/模式。
+- 语气具体、教学风格、避免空话。
 """
         return system_prompt.strip()
 
