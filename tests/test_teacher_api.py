@@ -34,3 +34,16 @@ def test_codex_cli_failure_falls_back_to_mock():
     bridge = TeacherBridge(use_mock=False, provider="codex_cli", codex_cmd="false")
     out = bridge.ask_gemini({"prediction_error_norm": 0.5}, trigger_type="CONFUSION")
     assert "MOCK" in out["reply"]
+
+
+def test_codex_cli_success_returns_output():
+    # Use printf to echo the prompt; ensures success path without real codex.
+    bridge = TeacherBridge(
+        use_mock=False,
+        provider="codex_cli",
+        codex_cmd="printf",
+        codex_args=["%s"],
+    )
+    out = bridge.ask_gemini({"prediction_error_norm": 0.1}, trigger_type="CONFUSION")
+    assert "Trigger:" in out["reply"]
+    assert "CONFUSION" in out["reply"]
