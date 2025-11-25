@@ -1,39 +1,39 @@
-"""Teacher bridge to query an LLM (Gemini) when the SNN is confused/surprised.
+"""Teacher bridge to query Codex (or mock) when the SNN is confused/surprised.
 
 The bridge formats internal SNN context into a mentoring-style system prompt.
-For now we default to a mock response to keep tests offline, but if
-google-generativeai is available and an API key is provided, it can call the
-real service.
+Default provider is Codex (OpenAI ChatCompletion). If no API key/client is
+available, it returns a deterministic mock reply so tests stay offline.
 """
 
 import os
 from typing import Any, Dict, Optional
 
-try:
-    import google.generativeai as genai  # type: ignore
-except Exception:  # pragma: no cover - optional dependency
-    genai = None
+try:  # pragma: no cover - optional dependency
+    from openai import OpenAI
+except Exception:  # pragma: no cover
+    OpenAI = None
 
 
 class TeacherBridge:
     def __init__(
         self,
-        model_name: str = "gemini-1.5-flash",
+        model_name: str = "gpt-4o-mini",
         api_key: Optional[str] = None,
         use_mock: bool = False,
+        provider: str = "codex",
     ) -> None:
         self.model_name = model_name
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
-        self.use_mock = use_mock or self.api_key is None or genai is None
+        self.provider = provider.lower()
+        self.api_key = api_key or os.getenv("OPENAI_API_KEY") or os.getenv("CODEX_API_KEY")
+        self.use_mock = use_mock or self.api_key is None or OpenAI is None
 
-        if not self.use_mock and genai is not None:
-            genai.configure(api_key=self.api_key)
-            self._model = genai.GenerativeModel(self.model_name)
+        if not self.use_mock and self.provider == "codex" and OpenAI is not None:
+            self._client = OpenAI(api_key=self.api_key)
         else:
-            self._model = None
+            self._client = None
 
     def ask_gemini(self, context_data: Dict[str, Any], trigger_type: str) -> Dict[str, str]:
-        """Query Gemini (or mock) with a prompt built from SNN context.
+        """Query Codex (or mock) with a prompt built from SNN context.
 
         Args:
             context_data: dictionary with keys like
@@ -53,13 +53,22 @@ class TeacherBridge:
 
         prompt = self._build_prompt(context_data, trigger)
 
-        if self.use_mock or self._model is None:
+        if self.use_mock or self._client is None:
             reply = self._mock_reply(context_data, trigger)
         else:
-            response = self._model.generate_content(prompt)
-            reply = getattr(response, "text", str(response))
+            response = self._client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": prompt},
+                    {
+                        "role": "user",
+                        "content": "Provide a concise teaching tip (<=80 words) to reduce entropy.",
+                    },
+                ],
+            )
+            reply = response.choices[0].message.content
 
-        return {"prompt": prompt, "reply": reply}
+        return {"prompt": prompt, "reply": reply, "provider": self.provider}
 
     def _build_prompt(self, ctx: Dict[str, Any], trigger: str) -> str:
         pe = ctx.get("prediction_error_norm", "unknown")
@@ -75,7 +84,7 @@ class TeacherBridge:
         spike_str = " | ".join(f"{k}:{v}" for k, v in spikes.items()) or "none"
 
         system_prompt = f"""
-You are Gemini acting as a mentor/teacher for a neuromorphic SNN (Ego-Sphere).
+You are Codex acting as a mentor/teacher for a neuromorphic SNN (Ego-Sphere).
 Trigger: {trigger}
 Prediction error norm: {pe}
 Proto-self: {proto_str}
