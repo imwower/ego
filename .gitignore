@@ -1,2 +1,9 @@
 # IDE settings
 .idea/
+
+# Virtual environments
+.venv/
+
+# Bytecode caches
+__pycache__/
+*.py[cod]
