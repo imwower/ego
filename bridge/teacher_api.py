@@ -26,11 +26,13 @@ class TeacherBridge:
         use_mock: bool = False,
         provider: str = "codex_cli",
         codex_cmd: str = "codex",
+        codex_args: Optional[list] = None,
     ) -> None:
         self.model_name = model_name
         self.provider = provider.lower()
         self.api_key = api_key or os.getenv("OPENAI_API_KEY") or os.getenv("CODEX_API_KEY")
         self.codex_cmd = codex_cmd
+        self.codex_args = codex_args or []
 
         self._client = None
         self._codex_available = shutil.which(self.codex_cmd) is not None
@@ -127,8 +129,12 @@ Responsibilities:
         """Invoke local codex CLI; fallback to mock on error."""
 
         try:
+            cmd = [self.codex_cmd]
+            # If extra args are provided, append them; otherwise rely on CLI defaults.
+            if self.codex_args:
+                cmd.extend(self.codex_args)
             result = subprocess.run(
-                [self.codex_cmd, "--model", self.model_name],
+                cmd,
                 input=prompt,
                 text=True,
                 capture_output=True,
