@@ -47,7 +47,7 @@ class TeacherBridge:
         else:
             raise ValueError("Unknown provider; use 'codex_cli' or 'codex_api'.")
 
-    def ask_gemini(self, context_data: Dict[str, Any], trigger_type: str) -> Dict[str, str]:
+    def ask_gemini(self, context_data: Dict[str, Any], trigger_type: str) -> Dict[str, Any]:
         """Query Codex (or mock) with a prompt built from SNN context.
 
         Args:
@@ -69,10 +69,13 @@ class TeacherBridge:
         prompt = self._build_prompt(context_data, trigger)
 
         reply: str
+        provider_ok = True
+        raw_output = ""
         if self.use_mock:
             reply = self._mock_reply(context_data, trigger)
         elif self.provider == "codex_cli":
-            reply, ok = self._call_codex_cli(prompt)
+            reply, ok, raw_output = self._call_codex_cli(prompt)
+            provider_ok = ok
             if not ok:
                 reply = self._mock_reply(context_data, trigger)
         else:  # codex_api
@@ -88,7 +91,15 @@ class TeacherBridge:
             )
             reply = response.choices[0].message.content
 
-        return {"prompt": prompt, "reply": reply, "provider": self.provider}
+            raw_output = reply
+
+        return {
+            "prompt": prompt,
+            "reply": reply,
+            "provider": self.provider,
+            "provider_ok": provider_ok,
+            "raw_output": raw_output,
+        }
 
     def _build_prompt(self, ctx: Dict[str, Any], trigger: str) -> str:
         pe = ctx.get("prediction_error_norm", "unknown")
@@ -128,8 +139,8 @@ Responsibilities:
             f"If pain={pain}, damp irrelevant spikes; focus on recent pattern and predict its next token."
         )
 
-    def _call_codex_cli(self, prompt: str) -> tuple[str, bool]:
-        """Invoke local codex CLI; report success flag."""
+    def _call_codex_cli(self, prompt: str) -> tuple[str, bool, str]:
+        """Invoke local codex CLI; report success flag and raw output."""
 
         try:
             cmd = [self.codex_cmd]
@@ -145,9 +156,10 @@ Responsibilities:
                 check=True,
             )
             output = result.stdout.strip()
-            return (output or "[CODEX_CLI] Empty response", True)
-        except Exception:  # pragma: no cover - environment dependent
-            return ("", False)
+            return (output or "[CODEX_CLI] Empty response", True, result.stderr.strip())
+        except Exception as exc:  # pragma: no cover - environment dependent
+            err = getattr(exc, "stderr", "") or str(exc)
+            return (err, False, err)
 
 
 __all__ = ["TeacherBridge"]

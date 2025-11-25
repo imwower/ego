@@ -84,7 +84,11 @@ def main() -> None:
             )
             if bridge_out:
                 print(f"  Teacher prompt: {bridge_out['prompt'][:80]}...")
-                print(f"  Teacher reply:  {bridge_out['reply']}")
+                status = "ok" if bridge_out.get("provider_ok") else "fallback"
+                print(f"  Teacher reply [{bridge_out['provider']}/{status}]: {bridge_out['reply']}")
+                raw = bridge_out.get("raw_output")
+                if raw:
+                    print(f"  Teacher raw output: {raw[:120]}...")
 
 
 if __name__ == "__main__":

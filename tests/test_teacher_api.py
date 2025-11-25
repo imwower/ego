@@ -34,6 +34,8 @@ def test_codex_cli_failure_falls_back_to_mock():
     bridge = TeacherBridge(use_mock=False, provider="codex_cli", codex_cmd="false")
     out = bridge.ask_gemini({"prediction_error_norm": 0.5}, trigger_type="CONFUSION")
     assert "MOCK" in out["reply"]
+    assert out["provider_ok"] is False
+    assert out["provider"] == "codex_cli"
 
 
 def test_codex_cli_success_returns_output():
@@ -45,5 +47,6 @@ def test_codex_cli_success_returns_output():
         codex_args=["%s"],
     )
     out = bridge.ask_gemini({"prediction_error_norm": 0.1}, trigger_type="CONFUSION")
+    assert out["provider_ok"] is True
     assert "Trigger:" in out["reply"]
     assert "CONFUSION" in out["reply"]
