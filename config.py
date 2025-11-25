@@ -44,6 +44,19 @@ class HyperParams:
     pain_ceiling: float = 1.0
     curiosity_ceiling: float = 1.0
 
+    # SNN region sizes
+    vision_dim: int = 64
+    text_dim: int = 32
+    assoc_dim: int = 128
+
+    # SNN dynamics
+    membrane_decay: float = 0.1
+    spike_threshold: float = 1.0
+    reset_potential: float = 0.0
+    sparsity: float = 0.8  # fraction of weights zeroed
+    reentry_gain: float = 1.0
+    prediction_gain: float = 1.0
+
 
 def ensure_mps_device() -> torch.device:
     """Return an MPS device or raise if unavailable.
