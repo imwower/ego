@@ -11,7 +11,7 @@ class CheckpointManager:
         self.directory = directory
         os.makedirs(self.directory, exist_ok=True)
 
-    def save(self, step: int, snn: Any, proto: Any, cortex: Any) -> str:
+    def save(self, step: int, snn: Any, proto: Any, cortex: Any, extras: Dict[str, Any] = None) -> str:
         """Save state_dicts and Proto-Self scalars to a .pt file."""
 
         state = {
@@ -25,6 +25,8 @@ class CheckpointManager:
             },
             "cortex": cortex.state_dict() if hasattr(cortex, "state_dict") else {},
         }
+        if extras:
+            state["extras"] = extras
         path = os.path.join(self.directory, f"checkpoint_step_{step}.pt")
         torch.save(state, path)
         return path
@@ -41,7 +43,7 @@ class CheckpointManager:
         proto.pain = ckpt["proto"]["pain"].to(proto.device)
         proto.curiosity = ckpt["proto"]["curiosity"].to(proto.device)
 
-        return {"step": ckpt.get("step", 0)}
+        return {"step": ckpt.get("step", 0), "extras": ckpt.get("extras")}
 
 
 __all__ = ["CheckpointManager"]
