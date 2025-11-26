@@ -35,6 +35,7 @@ class SNNEngine:
             "W_v_to_a": self.W_v_to_a,
             "W_v_to_a_mask": self.W_v_to_a_mask,
             "W_t_to_a": self.W_t_to_a,
+            "W_t_to_a_mask": self.W_t_to_a_mask,
             "W_a_recurrent": self.W_a_recurrent,
             "W_pred_vision": self.W_pred_vision,
             "W_pred_text": self.W_pred_text,
@@ -47,6 +48,7 @@ class SNNEngine:
         self.W_v_to_a = state["W_v_to_a"]
         self.W_v_to_a_mask = state.get("W_v_to_a_mask", (self.W_v_to_a != 0).float())
         self.W_t_to_a = state["W_t_to_a"]
+        self.W_t_to_a_mask = state.get("W_t_to_a_mask", (self.W_t_to_a != 0).float())
         self.W_a_recurrent = state["W_a_recurrent"]
         self.W_pred_vision = state["W_pred_vision"]
         self.W_pred_text = state["W_pred_text"]
@@ -57,9 +59,10 @@ class SNNEngine:
     def _init_weights(self) -> None:
         hp = self.hparams
         self.W_v_to_a = self._init_sparse_weight(hp.assoc_dim, hp.vision_dim)
-        # Mask preserves the originally instantiated sparse topology for Hebbian updates.
+        # Masks preserve the originally instantiated sparse topology for Hebbian updates.
         self.W_v_to_a_mask = (self.W_v_to_a != 0).float()
         self.W_t_to_a = self._init_sparse_weight(hp.assoc_dim, hp.text_dim)
+        self.W_t_to_a_mask = (self.W_t_to_a != 0).float()
         self.W_a_recurrent = self._init_sparse_weight(
             hp.assoc_dim, hp.assoc_dim, scale=hp.reentry_gain
         )
@@ -180,9 +183,15 @@ class SNNEngine:
         """
 
         lr = torch.tensor(learning_rate, device=self.device, dtype=torch.float32)
-        cofire = torch.outer(self.spikes_assoc, self.spikes_vision)
-        delta = lr * cofire * self.W_v_to_a_mask
-        self.W_v_to_a = torch.clamp(self.W_v_to_a + delta, max=max_weight)
+        # Vision -> Association potentiation.
+        cofire_v = torch.outer(self.spikes_assoc, self.spikes_vision)
+        delta_v = lr * cofire_v * self.W_v_to_a_mask
+        self.W_v_to_a = torch.clamp(self.W_v_to_a + delta_v, min=0.0, max=max_weight)
+
+        # Text -> Association potentiation (language pathway).
+        cofire_t = torch.outer(self.spikes_assoc, self.spikes_text)
+        delta_t = lr * cofire_t * self.W_t_to_a_mask
+        self.W_t_to_a = torch.clamp(self.W_t_to_a + delta_t, min=0.0, max=max_weight)
 
 
 __all__ = ["SNNEngine"]

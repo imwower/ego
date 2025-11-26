@@ -75,21 +75,27 @@ def test_reentry_drives_activity_without_new_input():
 @pytest.mark.skipif(mps_unavailable, reason="MPS device not available")
 def test_hebbian_updates_only_existing_connections():
     device = torch.device("mps")
-    hp = HyperParams(device=device, vision_dim=2, text_dim=1, assoc_dim=2, sparsity=0.0)
+    hp = HyperParams(device=device, vision_dim=2, text_dim=2, assoc_dim=2, sparsity=0.0)
     engine = SNNEngine(hparams=hp)
 
-    # Define a simple topology: only (assoc0 <- vision0) exists.
+    # Define simple topology: assoc0<-vision0 and assoc1<-text0 exist; others zero.
     engine.W_v_to_a.zero_()
     engine.W_v_to_a[0, 0] = 0.5
     engine.W_v_to_a[1, 1] = 0.0
     engine.W_v_to_a_mask = (engine.W_v_to_a != 0).float()
+    engine.W_t_to_a.zero_()
+    engine.W_t_to_a[1, 0] = 0.9
+    engine.W_t_to_a_mask = (engine.W_t_to_a != 0).float()
 
-    engine.spikes_assoc = torch.tensor([1.0, 0.0], device=device)
+    engine.spikes_assoc = torch.tensor([1.0, 1.0], device=device)
     engine.spikes_vision = torch.tensor([1.0, 1.0], device=device)
+    engine.spikes_text = torch.tensor([1.0, 1.0], device=device)
 
     engine.update_weights_hebbian(learning_rate=0.1, max_weight=1.0)
 
-    # Only the masked connection should grow.
+    # Only the masked connections should grow, others stay zero and clamp at max.
     assert engine.W_v_to_a[0, 0].item() == pytest.approx(0.6, rel=1e-3)
     assert engine.W_v_to_a[0, 1].item() == pytest.approx(0.0, abs=1e-6)
     assert engine.W_v_to_a[1, 0].item() == pytest.approx(0.0, abs=1e-6)
+    assert engine.W_t_to_a[1, 0].item() == pytest.approx(1.0, rel=1e-3)  # clamped from 0.9+0.1
+    assert engine.W_t_to_a[0, 0].item() == pytest.approx(0.0, abs=1e-6)
