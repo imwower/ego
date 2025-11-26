@@ -30,6 +30,30 @@ class SNNEngine:
         self._init_weights()
         self.reset_state()
 
+    def state_dict(self) -> Dict[str, torch.Tensor]:
+        return {
+            "W_v_to_a": self.W_v_to_a,
+            "W_v_to_a_mask": self.W_v_to_a_mask,
+            "W_t_to_a": self.W_t_to_a,
+            "W_a_recurrent": self.W_a_recurrent,
+            "W_pred_vision": self.W_pred_vision,
+            "W_pred_text": self.W_pred_text,
+            "v_vision": self.v_vision,
+            "v_text": self.v_text,
+            "v_assoc": self.v_assoc,
+        }
+
+    def load_state_dict(self, state: Dict[str, torch.Tensor]) -> None:
+        self.W_v_to_a = state["W_v_to_a"]
+        self.W_v_to_a_mask = state.get("W_v_to_a_mask", (self.W_v_to_a != 0).float())
+        self.W_t_to_a = state["W_t_to_a"]
+        self.W_a_recurrent = state["W_a_recurrent"]
+        self.W_pred_vision = state["W_pred_vision"]
+        self.W_pred_text = state["W_pred_text"]
+        self.v_vision = state["v_vision"]
+        self.v_text = state["v_text"]
+        self.v_assoc = state["v_assoc"]
+
     def _init_weights(self) -> None:
         hp = self.hparams
         self.W_v_to_a = self._init_sparse_weight(hp.assoc_dim, hp.vision_dim)
