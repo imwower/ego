@@ -115,19 +115,21 @@ class SNNEngine:
             raise ValueError(f"{name} input must have shape ({dim},), got {t.shape}")
         return t
 
-    def _integrate_and_fire(self, v_mem: torch.Tensor, input_drive: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _integrate_and_fire(self, v_mem: torch.Tensor, input_drive: torch.Tensor, threshold: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         hp = self.hparams
         v_mem = v_mem * (1.0 - hp.membrane_decay) + input_drive
-        spikes = (v_mem >= hp.spike_threshold).float()
+        spikes = (v_mem >= threshold).float()
         v_mem = torch.where(spikes.bool(), torch.full_like(v_mem, hp.reset_potential), v_mem)
         return v_mem, spikes
 
-    def step(self, sensory_input: Dict[str, torch.Tensor]) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
+    def step(self, sensory_input: Dict[str, torch.Tensor], modulation_signals: Optional[Dict[str, float]] = None) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
         """Advance one timestep of the SNN.
 
         Args:
             sensory_input: dict with optional keys "vision" and "text" mapping
                 to tensors shaped (vision_dim,) and (text_dim,) on any device.
+            modulation_signals: dict with optional keys {\"pain\", \"curiosity\"}
+                to modulate thresholds/learning rates (neuromodulation proxy).
 
         Returns:
             firing_indices: dict of index tensors for spikes in each region.
@@ -139,9 +141,17 @@ class SNNEngine:
         vision = self._prepare_input(sensory_input.get("vision"), hp.vision_dim, "vision")
         text = self._prepare_input(sensory_input.get("text"), hp.text_dim, "text")
 
+        pain_signal = float(modulation_signals.get("pain", 0.0)) if modulation_signals else 0.0
+        # Neuromodulation: pain lowers threshold (hyper-excitable).
+        threshold_value = hp.spike_threshold * max(0.2, 1.0 - 0.5 * pain_signal)
+
         # Sensory regions integrate inputs directly.
-        self.v_vision, self.spikes_vision = self._integrate_and_fire(self.v_vision, vision)
-        self.v_text, self.spikes_text = self._integrate_and_fire(self.v_text, text)
+        self.v_vision, self.spikes_vision = self._integrate_and_fire(
+            self.v_vision, vision, torch.full_like(self.v_vision, threshold_value)
+        )
+        self.v_text, self.spikes_text = self._integrate_and_fire(
+            self.v_text, text, torch.full_like(self.v_text, threshold_value)
+        )
 
         # Association integrates multimodal spikes and its own history (reentry).
         prev_assoc_spikes = self.spikes_assoc
@@ -150,7 +160,9 @@ class SNNEngine:
             + torch.matmul(self.W_t_to_a, self.spikes_text)
             + torch.matmul(self.W_a_recurrent, prev_assoc_spikes)
         )
-        self.v_assoc, self.spikes_assoc = self._integrate_and_fire(self.v_assoc, assoc_drive)
+        self.v_assoc, self.spikes_assoc = self._integrate_and_fire(
+            self.v_assoc, assoc_drive, torch.full_like(self.v_assoc, threshold_value)
+        )
 
         # Predict next-step sensory input from association spikes.
         pred_vision = torch.matmul(self.W_pred_vision, self.spikes_assoc)
@@ -173,7 +185,7 @@ class SNNEngine:
 
         return firing_indices, prediction_error
 
-    def update_weights_hebbian(self, learning_rate: float = 0.01, max_weight: float = 1.0) -> None:
+    def update_weights_hebbian(self, learning_rate: float = 0.01, max_weight: float = 1.0, modulation_signals: Optional[Dict[str, float]] = None) -> None:
         """Hebbian plasticity: cells that fire together wire together.
 
         We only update existing sparse connections (mask) to avoid densifying
@@ -182,7 +194,8 @@ class SNNEngine:
         runaway excitation.
         """
 
-        lr = torch.tensor(learning_rate, device=self.device, dtype=torch.float32)
+        curiosity_signal = float(modulation_signals.get("curiosity", 0.0)) if modulation_signals else 0.0
+        lr = torch.tensor(learning_rate * (1.0 + 0.5 * curiosity_signal), device=self.device, dtype=torch.float32)
         # Vision -> Association potentiation.
         cofire_v = torch.outer(self.spikes_assoc, self.spikes_vision)
         delta_v = lr * cofire_v * self.W_v_to_a_mask

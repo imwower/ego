@@ -12,6 +12,7 @@ curiosity, active modalities, prediction error).
 
 import math
 import time
+import re
 from typing import Dict
 
 import torch
@@ -61,7 +62,10 @@ def main() -> None:
         somatic = proto.step()
         sensory["vision"] = sensory["vision"] + somatic[: hp.vision_dim]
 
-        firing, pred_err = snn.step(sensory)
+        state_mod = proto.state()
+        modulation = {"pain": state_mod["pain"], "curiosity": state_mod["curiosity"]}
+
+        firing, pred_err = snn.step(sensory, modulation_signals=modulation)
 
         # Trigger teacher if surprised/confused.
         if pred_err["norm"] > error_threshold:
@@ -82,6 +86,15 @@ def main() -> None:
                     "step": t,
                 }
                 memory.add_memory(bridge_out["reply"], embedding=embedding, metadata=metadata)
+
+            # Closed-loop: feed teacher concept back as text and bind to vision via Hebbian update.
+            concept_match = re.search(r"[A-Za-z]+", bridge_out["reply"])
+            if concept_match:
+                concept = concept_match.group(0)
+                teacher_spikes = cortex.text_to_spikes(concept)
+                reinforce_input = {"vision": sensory["vision"], "text": teacher_spikes}
+                snn.step(reinforce_input, modulation_signals=modulation)
+                snn.update_weights_hebbian(learning_rate=0.05, modulation_signals=modulation)
         else:
             bridge_out = None
 
