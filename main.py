@@ -45,7 +45,7 @@ def main() -> None:
     # Try codex CLI by default; falls back to mock if unavailable.
     teacher = TeacherBridge(use_mock=False, provider="codex_cli")
     try:
-        memory = MemoryBank()
+        memory = MemoryBank(persist_directory="data/chroma_store")
     except RuntimeError as exc:
         memory = None
         print(f"[warn] MemoryBank disabled: {exc}")
