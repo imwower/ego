@@ -11,12 +11,13 @@ curiosity, active modalities, prediction error).
 """
 
 import math
+import time
 from typing import Dict
 
 import torch
 
 from config import default_hparams
-from core import ProtoSelf, SNNEngine, LanguageCortex
+from core import ProtoSelf, SNNEngine, LanguageCortex, MemoryBank
 from bridge import TeacherBridge
 
 
@@ -43,6 +44,7 @@ def main() -> None:
     cortex = LanguageCortex(hparams=hp)
     # Try codex CLI by default; falls back to mock if unavailable.
     teacher = TeacherBridge(use_mock=False, provider="codex_cli")
+    memory = MemoryBank()
 
     steps = 150
     error_threshold = 0.3
@@ -66,6 +68,15 @@ def main() -> None:
                 "notes": f"t={t}",
             }
             bridge_out = teacher.ask_gemini(ctx, trigger_type="SURPRISE")
+
+            # Persist teacher feedback grounded to current assoc spikes.
+            embedding = snn.spikes_assoc.detach().to("cpu").float().tolist()
+            metadata = {
+                "timestamp": time.time(),
+                "trigger_type": "SURPRISE",
+                "step": t,
+            }
+            memory.add_memory(bridge_out["reply"], embedding=embedding, metadata=metadata)
         else:
             bridge_out = None
 
