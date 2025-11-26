@@ -15,9 +15,10 @@ class MemoryBank:
             raise RuntimeError(f"ChromaDB unavailable: {exc}") from exc
 
         # Disable telemetry and allow optional persistence directory.
-        self._client = chromadb.Client(
-            Settings(anonymized_telemetry=False, persist_directory=persist_directory)
-        )
+        settings_kwargs = {"anonymized_telemetry": False}
+        if persist_directory:
+            settings_kwargs["persist_directory"] = persist_directory
+        self._client = chromadb.Client(Settings(**settings_kwargs))
         self._collection = self._client.get_or_create_collection(name=collection)
 
     def add_memory(

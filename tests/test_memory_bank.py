@@ -23,7 +23,8 @@ def test_memory_bank_adds_and_counts():
 @pytest.mark.parametrize("embedding", ([[0.0], [1.0, 2.0, 3.0]]))
 def test_memory_bank_accepts_embeddings(embedding):
     try:
-        bank = MemoryBank(collection="test_memories_param", persist_directory=None)
+        # Use distinct collection names per dimension to avoid dimension mismatch.
+        bank = MemoryBank(collection=f"test_memories_param_{len(embedding)}", persist_directory=None)
     except RuntimeError:
         pytest.skip("ChromaDB unavailable in this environment")
     meta = {"trigger_type": "CONFUSION"}
