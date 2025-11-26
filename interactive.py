@@ -1,18 +1,18 @@
-"""Interactive CLI for stepping the Ego-Sphere SNN with vision/text commands."""
+"""Interactive CLI loop for Ego-Sphere with sensory input, sleep, and checkpoints."""
 
 import argparse
-import sys
+import os
 from typing import Dict, Optional
 
 import torch
 
 from config import default_hparams
-from core import ProtoSelf, SNNEngine, LanguageCortex
+from core import CheckpointManager, EpisodicMemory, LanguageCortex, ProtoSelf, SNNEngine
 from bridge import TeacherBridge
 
 
 def vision_pattern(pattern_id: str, dim: int, device: torch.device) -> torch.Tensor:
-    """Map a pattern id to a vision vector."""
+    """Map a pattern id to a vision vector (synthetic stimuli)."""
     v = torch.zeros(dim, device=device)
     pid = pattern_id.lower()
     if pid == "cat":
@@ -28,14 +28,16 @@ def vision_pattern(pattern_id: str, dim: int, device: torch.device) -> torch.Ten
     return v
 
 
-def run_interactive(error_threshold: float = 0.3, use_teacher: bool = True) -> None:
+def run_interactive(error_threshold: float = 0.3, use_teacher: bool = True, ckpt_dir: str = "checkpoints") -> None:
     hp = default_hparams()
     proto = ProtoSelf(hparams=hp)
     snn = SNNEngine(hparams=hp)
     cortex = LanguageCortex(hparams=hp)
     teacher = TeacherBridge(use_mock=not use_teacher, provider="codex_cli") if use_teacher else None
+    episodic = EpisodicMemory(persist_directory="data/chroma_store")
+    ckpt_mgr = CheckpointManager(directory=ckpt_dir)
 
-    print("Interactive Ego-Sphere. Commands: vision <pattern>, text <word>, status, quit")
+    print("Interactive Ego-Sphere. Commands: see <pattern>, read <word>, sleep, status, save, load <step>, quit")
     print("Patterns: cat, edge, dot, noise")
 
     while True:
@@ -52,21 +54,45 @@ def run_interactive(error_threshold: float = 0.3, use_teacher: bool = True) -> N
             state = proto.state()
             print(f"energy={state['energy']:.3f} pain={state['pain']:.3f} curiosity={state['curiosity']:.3f}")
             continue
+        if cmd == "sleep":
+            # Offline consolidation: one Hebbian update
+            snn.update_weights_hebbian(learning_rate=0.01)
+            print("Sleep: Hebbian consolidation applied.")
+            continue
+        if cmd == "save":
+            path = ckpt_mgr.save(step=0, snn=snn, proto=proto, cortex=cortex)
+            print(f"Saved checkpoint to {path}")
+            continue
+        if cmd.startswith("load"):
+            parts = cmd.split(maxsplit=1)
+            if len(parts) == 2:
+                path = parts[1]
+            else:
+                # load latest by sorting
+                try:
+                    files = sorted(os.listdir(ckpt_dir))
+                    path = os.path.join(ckpt_dir, files[-1])
+                except Exception:
+                    print("No checkpoint found.")
+                    continue
+            meta = ckpt_mgr.load(path, snn=snn, proto=proto, cortex=cortex)
+            print(f"Loaded checkpoint from {path}, step={meta.get('step')}")
+            continue
 
         tokens = cmd.split(maxsplit=1)
-        if len(tokens) != 2 or tokens[0] not in {"vision", "text"}:
-            print("Invalid command. Use: vision <pattern>, text <word>, status, quit")
+        if len(tokens) != 2 or tokens[0] not in {"see", "read"}:
+            print("Invalid command. Use: see <pattern>, read <word>, sleep, status, save, load <path>, quit")
             continue
 
         sensory: Dict[str, Optional[torch.Tensor]] = {"vision": torch.zeros(hp.vision_dim, device=hp.device), "text": None}
 
-        if tokens[0] == "vision":
+        if tokens[0] == "see":
             try:
                 sensory["vision"] = vision_pattern(tokens[1], hp.vision_dim, hp.device)
             except ValueError as exc:
                 print(exc)
                 continue
-        elif tokens[0] == "text":
+        elif tokens[0] == "read":
             sensory["text"] = cortex.text_to_spikes(tokens[1])
 
         # ProtoSelf noise keeps network alive; add to vision.
@@ -90,6 +116,12 @@ def run_interactive(error_threshold: float = 0.3, use_teacher: bool = True) -> N
             status = "ok" if bridge_out.get("provider_ok") else "fallback"
             print("Teacher prompt:\n", bridge_out["prompt"])
             print(f"Teacher reply [{bridge_out['provider']}/{status}]: {bridge_out['reply']}")
+            # Store episodic memory grounded to assoc spikes.
+            try:
+                embedding = snn.spikes_assoc.detach().to("cpu").float().tolist()
+                episodic.store_experience("SURPRISE", bridge_out["reply"], embedding)
+            except Exception as exc:
+                print(f"[warn] episodic store failed: {exc}")
 
 
 if __name__ == "__main__":
