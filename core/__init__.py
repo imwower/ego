@@ -5,5 +5,6 @@ from .snn_engine import SNNEngine
 from .language_cortex import LanguageCortex
 from .memory_bank import MemoryBank
 from .checkpoint import CheckpointManager
+from .episodic_memory import EpisodicMemory
 
-__all__ = ["ProtoSelf", "SNNEngine", "LanguageCortex", "MemoryBank", "CheckpointManager"]
+__all__ = ["ProtoSelf", "SNNEngine", "LanguageCortex", "MemoryBank", "CheckpointManager", "EpisodicMemory"]
