@@ -44,7 +44,11 @@ def main() -> None:
     cortex = LanguageCortex(hparams=hp)
     # Try codex CLI by default; falls back to mock if unavailable.
     teacher = TeacherBridge(use_mock=False, provider="codex_cli")
-    memory = MemoryBank()
+    try:
+        memory = MemoryBank()
+    except RuntimeError as exc:
+        memory = None
+        print(f"[warn] MemoryBank disabled: {exc}")
 
     steps = 150
     error_threshold = 0.3
@@ -70,13 +74,14 @@ def main() -> None:
             bridge_out = teacher.ask_gemini(ctx, trigger_type="SURPRISE")
 
             # Persist teacher feedback grounded to current assoc spikes.
-            embedding = snn.spikes_assoc.detach().to("cpu").float().tolist()
-            metadata = {
-                "timestamp": time.time(),
-                "trigger_type": "SURPRISE",
-                "step": t,
-            }
-            memory.add_memory(bridge_out["reply"], embedding=embedding, metadata=metadata)
+            if memory is not None:
+                embedding = snn.spikes_assoc.detach().to("cpu").float().tolist()
+                metadata = {
+                    "timestamp": time.time(),
+                    "trigger_type": "SURPRISE",
+                    "step": t,
+                }
+                memory.add_memory(bridge_out["reply"], embedding=embedding, metadata=metadata)
         else:
             bridge_out = None
 
