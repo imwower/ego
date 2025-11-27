@@ -122,7 +122,7 @@ class SNNEngine:
         v_mem = torch.where(spikes.bool(), torch.full_like(v_mem, hp.reset_potential), v_mem)
         return v_mem, spikes
 
-    def step(self, sensory_input: Dict[str, torch.Tensor], modulation_signals: Optional[Dict[str, float]] = None) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
+    def step(self, sensory_input: Dict[str, torch.Tensor], modulation_signals: Optional[Dict[str, float]] = None) -> Tuple[Dict[str, torch.Tensor], Dict[str, torch.Tensor], Dict[str, torch.Tensor]]:
         """Advance one timestep of the SNN.
 
         Args:
@@ -135,6 +135,7 @@ class SNNEngine:
             firing_indices: dict of index tensors for spikes in each region.
             prediction_error: dict with per-modality prediction errors and a
                 scalar L2 norm under key "norm".
+            predictions: dict with predicted sensory vectors {"vision", "text"}.
         """
 
         hp = self.hparams
@@ -183,7 +184,9 @@ class SNNEngine:
             "norm": error_norm,
         }
 
-        return firing_indices, prediction_error
+        predictions = {"vision": pred_vision, "text": pred_text}
+
+        return firing_indices, prediction_error, predictions
 
     def update_weights_hebbian(self, learning_rate: float = 0.01, max_weight: float = 1.0, modulation_signals: Optional[Dict[str, float]] = None) -> None:
         """Hebbian plasticity: cells that fire together wire together.

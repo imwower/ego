@@ -199,7 +199,7 @@ def run_loop(stimuli: List[StimulusWindow], args: argparse.Namespace, label: str
         state_mod = proto.state()
         modulation = {"pain": state_mod["pain"], "curiosity": state_mod["curiosity"]}
 
-        firing, pred_err = snn.step(sensory, modulation_signals=modulation)
+        firing, pred_err, predictions = snn.step(sensory, modulation_signals=modulation)
 
         trigger_type = None
         trigger_reason = None

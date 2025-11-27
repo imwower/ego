@@ -11,6 +11,7 @@ from typing import Dict, List, Optional
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from config import HyperParams, default_hparams
 
@@ -70,6 +71,30 @@ class LanguageCortex(nn.Module):
         pooled = embeddings.mean(dim=0)
         rates = torch.sigmoid(pooled)  # rate-coded spikes in [0, 1]
         return rates
+
+    def spikes_to_text(self, spike_rates: torch.Tensor, k: int = 1) -> List[str]:
+        """Decode spike rates back to top-k tokens via similarity to embeddings."""
+
+        if not self.vocab:
+            return []
+
+        rates = torch.as_tensor(spike_rates, device=self.device, dtype=torch.float32)
+        if rates.numel() != self.hparams.text_dim:
+            raise ValueError(f"spike_rates must have shape ({self.hparams.text_dim},)")
+
+        # Only consider indices currently present in vocab to avoid empty slots.
+        vocab_items = list(self.vocab.items())
+        token_list = [tok for tok, _ in vocab_items]
+        idx_list = torch.tensor([idx for _, idx in vocab_items], device=self.device, dtype=torch.long)
+
+        with torch.no_grad():
+            # Estimated rate vectors for each vocab entry.
+            rate_bank = torch.sigmoid(self.embedding(idx_list))
+            sims = F.cosine_similarity(rates.unsqueeze(0), rate_bank, dim=1)
+            topk = min(k, sims.numel())
+            values, indices = torch.topk(sims, k=topk, largest=True)
+
+        return [token_list[int(i)] for i in indices.tolist()]
 
     def __repr__(self) -> str:
         return (

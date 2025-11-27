@@ -10,6 +10,7 @@ import torch
 from config import default_hparams
 from core import CheckpointManager, EpisodicMemory, LanguageCortex, ProtoSelf, SNNEngine
 from bridge import TeacherBridge
+from utils.vision_io import load_image_as_tensor, save_tensor_as_image
 
 
 def vision_pattern(pattern_id: str, dim: int, device: torch.device) -> torch.Tensor:
@@ -78,7 +79,7 @@ def run_interactive(error_threshold: float = 0.3, use_teacher: bool = True, ckpt
     episodic = EpisodicMemory(persist_directory="data/chroma_store")
     ckpt_mgr = CheckpointManager(directory=ckpt_dir)
 
-    print("Interactive Ego-Sphere. Commands: see <pattern>, read <word>, sleep, status, save, load <step>, quit")
+    print("Interactive Ego-Sphere. Commands: see <pattern>, read <word>, describe <img>, imagine <text>, sleep, status, save, load <step>, quit")
     print("Patterns: cat, edge, dot, noise")
 
     while True:
@@ -130,8 +131,43 @@ def run_interactive(error_threshold: float = 0.3, use_teacher: bool = True, ckpt
             continue
 
         tokens = cmd.split(maxsplit=1)
+
+        if len(tokens) == 2 and tokens[0] == "describe":
+            try:
+                vision_tensor = load_image_as_tensor(tokens[1], hp.vision_dim, hp.device)
+            except Exception as exc:
+                print(f"[error] failed to load image: {exc}")
+                continue
+            pred_text_sum = torch.zeros(hp.text_dim, device=hp.device)
+            for _ in range(20):
+                somatic = proto.step()
+                sensory = {"vision": vision_tensor + somatic[: hp.vision_dim], "text": None}
+                _, _, preds = snn.step(sensory)
+                pred_text_sum += preds["text"]
+            avg_pred_text = pred_text_sum / 20.0
+            words = cortex.spikes_to_text(avg_pred_text, k=1)
+            if words:
+                print(f"I see a {words[0]}")
+            else:
+                print("I cannot describe this image yet.")
+            continue
+
+        if len(tokens) == 2 and tokens[0] == "imagine":
+            text_spikes = cortex.text_to_spikes(tokens[1])
+            pred_vision_sum = torch.zeros(hp.vision_dim, device=hp.device)
+            for _ in range(20):
+                somatic = proto.step()
+                sensory = {"vision": somatic[: hp.vision_dim], "text": text_spikes}
+                _, _, preds = snn.step(sensory)
+                pred_vision_sum += preds["vision"]
+            avg_pred_vision = pred_vision_sum / 20.0
+            out_path = "imagination.png"
+            save_tensor_as_image(avg_pred_vision, out_path)
+            print(f"I imagined this image (saved to {out_path})")
+            continue
+
         if len(tokens) != 2 or tokens[0] not in {"see", "read"}:
-            print("Invalid command. Use: see <pattern>, read <word>, sleep, status, save, load <path>, quit")
+            print("Invalid command. Use: see <pattern>, read <word>, describe <img>, imagine <text>, sleep, status, save, load <path>, quit")
             continue
 
         sensory: Dict[str, Optional[torch.Tensor]] = {"vision": torch.zeros(hp.vision_dim, device=hp.device), "text": None}
@@ -167,7 +203,7 @@ def run_interactive(error_threshold: float = 0.3, use_teacher: bool = True, ckpt
 
             # 运行一步 SNN
             step_input = {"vision": current_vision, "text": sensory["text"]}
-            firing, pred_err = snn.step(step_input, modulation_signals=modulation)
+            firing, pred_err, _ = snn.step(step_input, modulation_signals=modulation)
             last_firing = firing
             last_pred_err = pred_err
             last_modulation = modulation
