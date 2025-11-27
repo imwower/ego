@@ -96,10 +96,10 @@ GEMINI_API_KEY=your_api_key_here
 - 场景 3：主动提问与学习 (The Child)
 
   ```bash
-  python main.py --mode active_learning
+  python main.py --mode active_learning --text-script data/text_script.example --dream-epochs 2
   ```
 
-  运行完整循环：感知 → 困惑 → 调用 Gemini → 学习新概念。
+  运行完整循环：多模态输入 → 困惑/好奇 → 调用 Gemini/Codex → 学习并在夜间梦境巩固。自定义脚本格式：`start-end;一句话文本;可选视觉模式(cat|dog|edge|dot|noise)`。
 
 ## 📂 项目结构 (Project Structure)
 
@@ -108,14 +108,16 @@ ego-sphere/
 ├── core/
 │   ├── snn_engine.py       # SNN 脉冲神经网络核心 (MPS 加速)
 │   ├── proto_self.py       # 原我：内稳态与情绪计算
-│   ├── memory.py           # 自传体记忆与回返机制
+│   ├── memory_bank.py      # 长期知识向量存储 (ChromaDB)
+│   ├── episodic_memory.py  # 情节记忆存取
+│   ├── checkpoint.py       # 训练快照
 │   └── language_cortex.py  # 语言皮层 (Text-to-Spike)
 ├── bridge/
-│   ├── teacher_api.py      # Gemini/Codex 调用接口
-│   └── translator.py       # 神经脉冲 -> 自然语言 Prompt 转译器
-├── memory_bank/            # 向量数据库 (ChromaDB) 存储长期知识
-├── examples/               # 演示脚本
-├── main.py                 # 主程序
+│   └── teacher_api.py      # Gemini/Codex 调用接口
+├── data/
+│   └── text_script.example # Phase 3 文本+视觉脚本示例
+├── interactive.py          # 交互式 CLI
+├── main.py                 # 模拟主循环（Demo/Active Learning）
 └── README.md
 ```
 
@@ -127,10 +129,10 @@ ego-sphere/
 - [x] Phase 2: 蜥蜴 (The Lizard)
   - [x] 引入原我（Pain/Energy）与核心自我。
   - [x] 实现预测编码与 Agency 检测。
-- [ ] Phase 3: 孩童 (The Child)
-  - [ ] 接入 Text 输入，建立“视觉-语言”双重编码。
-  - [ ] 完善“好奇心驱动”的主动提问逻辑。
-  - [ ] 实现“夜间梦境”模式（离线记忆巩固）。
+- [x] Phase 3: 孩童 (The Child)
+  - [x] 接入 Text 输入，建立“视觉-语言”双重编码（脚本驱动的双模态注入）。
+  - [x] 完善“好奇心驱动”的主动提问逻辑（curiosity 阈值触发 TeacherBridge）。
+  - [x] 实现“夜间梦境”模式（记忆采样 + 离线 Hebbian 巩固）。
 - [ ] Phase 4: 哲人 (The Philosopher)
   - [ ] 多模态意识流的完全统一。
   - [ ] 基于向量数据库的无限长期记忆挂载。

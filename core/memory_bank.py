@@ -1,7 +1,8 @@
 """ChromaDB-backed memory bank to persist teacher feedback grounded in neural state."""
 
-from typing import Any, Dict, List, Optional
+import random
 import time
+from typing import Any, Dict, List, Optional
 
 
 class MemoryBank:
@@ -50,6 +51,35 @@ class MemoryBank:
 
     def count(self) -> int:
         return self._collection.count()
+
+    def sample_memories(self, k: int = 3) -> List[Dict[str, Any]]:
+        """Return up to k stored memories with content, embedding, metadata, and id."""
+
+        data = self._collection.get(include=["documents", "embeddings", "metadatas", "ids"])
+        docs = data.get("documents") or []
+        emb = data.get("embeddings") or []
+        meta = data.get("metadatas") or []
+        ids = data.get("ids") or []
+
+        total = len(docs)
+        if total == 0:
+            return []
+
+        indices = list(range(total))
+        random.shuffle(indices)
+        picked = indices[: min(k, total)]
+
+        memories = []
+        for idx in picked:
+            memories.append(
+                {
+                    "id": ids[idx] if idx < len(ids) else None,
+                    "document": docs[idx],
+                    "embedding": emb[idx] if idx < len(emb) else None,
+                    "metadata": meta[idx] if idx < len(meta) else {},
+                }
+            )
+        return memories
 
 
 __all__ = ["MemoryBank"]
