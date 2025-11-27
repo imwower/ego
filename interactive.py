@@ -2,6 +2,7 @@
 
 import argparse
 import os
+import re
 from typing import Dict, Optional
 
 import torch
@@ -26,6 +27,46 @@ def vision_pattern(pattern_id: str, dim: int, device: torch.device) -> torch.Ten
     else:
         raise ValueError(f"Unknown vision pattern: {pattern_id}")
     return v
+
+
+def extract_concept_word(reply: str) -> Optional[str]:
+    """Prefer final-line English token; fallback to first English token."""
+
+    if not reply:
+        return None
+    last_line = reply.strip().splitlines()[-1].strip()
+    if re.fullmatch(r"[A-Za-z]+", last_line):
+        return last_line
+    match = re.search(r"[A-Za-z]+", reply)
+    return match.group(0) if match else None
+
+
+def dream_consolidation(
+    proto: ProtoSelf,
+    snn: SNNEngine,
+    cortex: LanguageCortex,
+    episodic: EpisodicMemory,
+    samples: int = 3,
+    learning_rate: float = 0.02,
+    curiosity_drive: float = 0.02,
+) -> None:
+    """Replay sampled memories and consolidate via Hebbian updates."""
+
+    hp = cortex.hparams
+    memories = episodic.sample_memories(k=samples)
+    if not memories:
+        print("[dream] no stored memories; skipping.")
+        return
+
+    for mem in memories:
+        text = mem.get("document") or ""
+        text_spikes = cortex.text_to_spikes(text)
+        somatic = proto.step(curiosity_drive=curiosity_drive)
+        sensory = {"vision": somatic[: hp.vision_dim], "text": text_spikes}
+        mod = {"pain": proto.state()["pain"], "curiosity": proto.state()["curiosity"]}
+        snn.step(sensory, modulation_signals=mod)
+        snn.update_weights_hebbian(learning_rate=learning_rate, modulation_signals=mod)
+    print(f"[dream] replayed {len(memories)} memories")
 
 
 def run_interactive(error_threshold: float = 0.3, use_teacher: bool = True, ckpt_dir: str = "checkpoints") -> None:
@@ -55,9 +96,18 @@ def run_interactive(error_threshold: float = 0.3, use_teacher: bool = True, ckpt
             print(f"energy={state['energy']:.3f} pain={state['pain']:.3f} curiosity={state['curiosity']:.3f}")
             continue
         if cmd == "sleep":
-            # Offline consolidation: one Hebbian update
-            snn.update_weights_hebbian(learning_rate=0.01)
-            print("Sleep: Hebbian consolidation applied.")
+            try:
+                dream_consolidation(
+                    proto=proto,
+                    snn=snn,
+                    cortex=cortex,
+                    episodic=episodic,
+                    samples=3,
+                    learning_rate=0.03,
+                    curiosity_drive=0.02,
+                )
+            except Exception as exc:
+                print(f"[warn] dream consolidation failed: {exc}")
             continue
         if cmd == "save":
             path = ckpt_mgr.save(step=0, snn=snn, proto=proto, cortex=cortex)
@@ -99,7 +149,9 @@ def run_interactive(error_threshold: float = 0.3, use_teacher: bool = True, ckpt
         somatic = proto.step()
         sensory["vision"] = sensory["vision"] + somatic[: hp.vision_dim]
 
-        firing, pred_err = snn.step(sensory)
+        state_mod = proto.state()
+        modulation = {"pain": state_mod["pain"], "curiosity": state_mod["curiosity"]}
+        firing, pred_err = snn.step(sensory, modulation_signals=modulation)
 
         print(
             f"err={pred_err['norm']:.3f} spikes: v={len(firing['vision'])} t={len(firing['text'])} a={len(firing['assoc'])}"
@@ -120,6 +172,12 @@ def run_interactive(error_threshold: float = 0.3, use_teacher: bool = True, ckpt
             try:
                 embedding = snn.spikes_assoc.detach().to("cpu").float().tolist()
                 episodic.store_experience("SURPRISE", bridge_out["reply"], embedding)
+                concept = extract_concept_word(bridge_out["reply"])
+                if concept:
+                    teacher_spikes = cortex.text_to_spikes(concept)
+                    reinforce_input = {"vision": sensory["vision"], "text": teacher_spikes}
+                    snn.step(reinforce_input, modulation_signals=modulation)
+                    snn.update_weights_hebbian(learning_rate=0.05, modulation_signals=modulation)
             except Exception as exc:
                 print(f"[warn] episodic store failed: {exc}")
 

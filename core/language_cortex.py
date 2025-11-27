@@ -6,7 +6,7 @@ sigmoid to yield rate-coded spike intensities in [0, 1]. This output is ready to
 feed the SNN text region without further shape conversion.
 """
 
-import math
+import random
 from typing import Dict, List, Optional
 
 import torch
@@ -52,8 +52,8 @@ class LanguageCortex(nn.Module):
             return self.vocab[token]
         idx = len(self.vocab)
         if idx >= self.vocab_size:
-            # If vocab is full, wrap but keep determinism by reusing last index.
-            idx = self.vocab_size - 1
+            # Vocab full: overwrite a random existing slot (simulated forgetting).
+            idx = random.randint(0, self.vocab_size - 1)
         self.vocab[token] = idx
         return idx
 

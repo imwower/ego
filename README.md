@@ -108,7 +108,6 @@ ego-sphere/
 ├── core/
 │   ├── snn_engine.py       # SNN 脉冲神经网络核心 (MPS 加速)
 │   ├── proto_self.py       # 原我：内稳态与情绪计算
-│   ├── memory_bank.py      # 长期知识向量存储 (ChromaDB)
 │   ├── episodic_memory.py  # 情节记忆存取
 │   ├── checkpoint.py       # 训练快照
 │   └── language_cortex.py  # 语言皮层 (Text-to-Spike)

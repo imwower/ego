@@ -15,7 +15,7 @@ from typing import Dict, List, Optional
 import torch
 
 from config import default_hparams
-from core import LanguageCortex, MemoryBank, ProtoSelf, SNNEngine
+from core import EpisodicMemory, LanguageCortex, ProtoSelf, SNNEngine
 from bridge import TeacherBridge
 
 
@@ -131,7 +131,7 @@ def dream_consolidation(
     proto: ProtoSelf,
     snn: SNNEngine,
     cortex: LanguageCortex,
-    memory: Optional[MemoryBank],
+    memory: Optional[EpisodicMemory],
     epochs: int,
     samples_per_epoch: int,
     curiosity_drive: float,
@@ -166,11 +166,11 @@ def run_loop(stimuli: List[StimulusWindow], args: argparse.Namespace, label: str
     if not args.no_teacher:
         teacher = TeacherBridge(use_mock=args.mock_teacher, provider=args.provider)
 
-    memory: Optional[MemoryBank] = None
+    memory: Optional[EpisodicMemory] = None
     try:
-        memory = MemoryBank(persist_directory="data/chroma_store")
+        memory = EpisodicMemory(persist_directory="data/chroma_store")
     except RuntimeError as exc:
-        print(f"[warn] MemoryBank disabled: {exc}")
+        print(f"[warn] EpisodicMemory disabled: {exc}")
 
     last_teacher_step = -args.curiosity_cooldown
 
@@ -220,7 +220,12 @@ def run_loop(stimuli: List[StimulusWindow], args: argparse.Namespace, label: str
                     "step": t,
                     "reason": trigger_reason,
                 }
-                memory.add_memory(bridge_out["reply"], embedding=embedding, metadata=metadata)
+                memory.store_experience(
+                    trigger=trigger_type,
+                    content=bridge_out["reply"],
+                    neural_state=embedding,
+                    metadata=metadata,
+                )
 
             concept = extract_concept_word(bridge_out["reply"])
             if concept:

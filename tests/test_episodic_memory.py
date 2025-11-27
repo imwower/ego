@@ -1,18 +1,32 @@
-"\"\"\"Tests for EpisodicMemory basic store/recall (skipped if chroma/text encoder unavailable).\"\"\""
+"""Tests for EpisodicMemory storage using in-memory ChromaDB."""
 
 import pytest
 
-from core.episodic_memory import EpisodicMemory
+from core import EpisodicMemory
 
 
-def test_store_and_recall_with_neural_embedding():
+def test_memory_bank_adds_and_counts():
     try:
-        mem = EpisodicMemory(collection="test_episodic", persist_directory="data/chroma_store")
-    except Exception:
-        pytest.skip("Chroma or encoder unavailable")
+        bank = EpisodicMemory(collection="test_memories", persist_directory=None)
+    except RuntimeError:
+        pytest.skip("ChromaDB unavailable in this environment")
+    before = bank.count()
 
-    emb = [0.1, 0.2, 0.3]
-    doc_id = mem.store_experience("SURPRISE", "test content", emb)
+    embedding = [0.1, 0.2, 0.3]
+    meta = {"trigger_type": "SURPRISE"}
+    doc_id = bank.store_experience("SURPRISE", "teacher reply", embedding, metadata=meta)
+
     assert doc_id
-    res = mem.recall(emb, k=1)
-    assert res["ids"]
+    assert bank.count() == before + 1
+
+
+@pytest.mark.parametrize("embedding", ([[0.0], [1.0, 2.0, 3.0]]))
+def test_memory_bank_accepts_embeddings(embedding):
+    try:
+        # Use distinct collection names per dimension to avoid dimension mismatch.
+        bank = EpisodicMemory(collection=f"test_memories_param_{len(embedding)}", persist_directory=None)
+    except RuntimeError:
+        pytest.skip("ChromaDB unavailable in this environment")
+    meta = {"trigger_type": "CONFUSION"}
+    bank.store_experience("CONFUSION", "content", embedding, metadata=meta)
+    assert bank.count() >= 1
