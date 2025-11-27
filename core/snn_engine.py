@@ -188,6 +188,13 @@ class SNNEngine:
 
         return firing_indices, prediction_error, predictions
 
+    def get_reconstruction(self) -> Dict[str, torch.Tensor]:
+        """Return current predicted sensory states."""
+
+        pred_vision = torch.matmul(self.W_pred_vision, self.spikes_assoc)
+        pred_text = torch.matmul(self.W_pred_text, self.spikes_assoc)
+        return {"vision": pred_vision, "text": pred_text}
+
     def update_weights_hebbian(self, learning_rate: float = 0.01, max_weight: float = 1.0, modulation_signals: Optional[Dict[str, float]] = None) -> None:
         """Hebbian plasticity: cells that fire together wire together.
 

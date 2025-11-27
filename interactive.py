@@ -2,32 +2,18 @@
 
 import argparse
 import os
+import random
 import re
 from typing import Dict, Optional
 
 import torch
+import torchvision
+import torchvision.transforms as transforms
 
 from config import default_hparams
 from core import CheckpointManager, EpisodicMemory, LanguageCortex, ProtoSelf, SNNEngine
 from bridge import TeacherBridge
 from utils.vision_io import load_image_as_tensor, save_tensor_as_image
-
-
-def vision_pattern(pattern_id: str, dim: int, device: torch.device) -> torch.Tensor:
-    """Map a pattern id to a vision vector (synthetic stimuli)."""
-    v = torch.zeros(dim, device=device)
-    pid = pattern_id.lower()
-    if pid == "cat":
-        v[0:3] = torch.tensor([1.0, 0.8, 0.6], device=device)
-    elif pid == "edge":
-        v[: dim // 4] = 0.5
-    elif pid == "dot":
-        v[0] = 1.0
-    elif pid == "noise":
-        v = torch.rand(dim, device=device) * 0.5
-    else:
-        raise ValueError(f"Unknown vision pattern: {pattern_id}")
-    return v
 
 
 def extract_concept_word(reply: str) -> Optional[str]:
@@ -79,8 +65,22 @@ def run_interactive(error_threshold: float = 0.3, use_teacher: bool = True, ckpt
     episodic = EpisodicMemory(persist_directory="data/chroma_store")
     ckpt_mgr = CheckpointManager(directory=ckpt_dir)
 
-    print("Interactive Ego-Sphere. Commands: see <pattern>, read <word>, describe <img>, imagine <text>, sleep, status, save, load <step>, quit")
-    print("Patterns: cat, edge, dot, noise")
+    # Preload CIFAR test split for describe/test_cifar.
+    transform = transforms.Compose(
+        [
+            transforms.Resize((int(hp.vision_dim ** 0.5), int(hp.vision_dim ** 0.5))),
+            transforms.Grayscale(),
+            transforms.ToTensor(),
+            transforms.Lambda(lambda x: x.view(-1)),
+        ]
+    )
+    cifar_test = torchvision.datasets.CIFAR100(root="./data", train=False, download=True, transform=transform)
+    class_to_indices: Dict[str, list] = {}
+    for idx, (_, label_idx) in enumerate(cifar_test):
+        label_name = cifar_test.classes[label_idx]
+        class_to_indices.setdefault(label_name, []).append(idx)
+
+    print("Interactive Ego-Sphere. Commands: test_cifar <class>, imagine <class>, read <word>, sleep, status, save, load <step>, quit")
 
     while True:
         try:
@@ -132,28 +132,29 @@ def run_interactive(error_threshold: float = 0.3, use_teacher: bool = True, ckpt
 
         tokens = cmd.split(maxsplit=1)
 
-        if len(tokens) == 2 and tokens[0] == "describe":
-            try:
-                vision_tensor = load_image_as_tensor(tokens[1], hp.vision_dim, hp.device)
-            except Exception as exc:
-                print(f"[error] failed to load image: {exc}")
+        if len(tokens) == 2 and tokens[0] == "test_cifar":
+            class_name = tokens[1]
+            indices = class_to_indices.get(class_name)
+            if not indices:
+                print(f"[error] class '{class_name}' not found in CIFAR-100.")
                 continue
+            idx = random.choice(indices)
+            vision_tensor, label_idx = cifar_test[idx]
             pred_text_sum = torch.zeros(hp.text_dim, device=hp.device)
             for _ in range(20):
                 somatic = proto.step()
-                sensory = {"vision": vision_tensor + somatic[: hp.vision_dim], "text": None}
+                sensory = {"vision": vision_tensor.to(hp.device) + somatic[: hp.vision_dim], "text": None}
                 _, _, preds = snn.step(sensory)
                 pred_text_sum += preds["text"]
             avg_pred_text = pred_text_sum / 20.0
             words = cortex.spikes_to_text(avg_pred_text, k=1)
-            if words:
-                print(f"I see a {words[0]}")
-            else:
-                print("I cannot describe this image yet.")
+            guess = words[0] if words else "unknown"
+            print(f"I see a {guess} (True: {class_name})")
             continue
 
         if len(tokens) == 2 and tokens[0] == "imagine":
-            text_spikes = cortex.text_to_spikes(tokens[1])
+            class_name = tokens[1]
+            text_spikes = cortex.text_to_spikes(class_name)
             pred_vision_sum = torch.zeros(hp.vision_dim, device=hp.device)
             for _ in range(20):
                 somatic = proto.step()
@@ -166,23 +167,16 @@ def run_interactive(error_threshold: float = 0.3, use_teacher: bool = True, ckpt
             print(f"I imagined this image (saved to {out_path})")
             continue
 
-        if len(tokens) != 2 or tokens[0] not in {"see", "read"}:
-            print("Invalid command. Use: see <pattern>, read <word>, describe <img>, imagine <text>, sleep, status, save, load <path>, quit")
+        if len(tokens) == 2 and tokens[0] == "read":
+            sensory: Dict[str, Optional[torch.Tensor]] = {
+                "vision": torch.zeros(hp.vision_dim, device=hp.device),
+                "text": cortex.text_to_spikes(tokens[1]),
+            }
+        else:
+            print("Invalid command. Use: test_cifar <class>, imagine <class>, read <word>, sleep, status, save, load <path>, quit")
             continue
 
-        sensory: Dict[str, Optional[torch.Tensor]] = {"vision": torch.zeros(hp.vision_dim, device=hp.device), "text": None}
-
-        if tokens[0] == "see":
-            try:
-                sensory["vision"] = vision_pattern(tokens[1], hp.vision_dim, hp.device)
-            except ValueError as exc:
-                print(exc)
-                continue
-        elif tokens[0] == "read":
-            sensory["text"] = cortex.text_to_spikes(tokens[1])
-
-        # === 修改开始 ===
-        # 持续运行 20 个时间步，让信号充分传播
+        # Closed-loop read path: run a short rollout with text input only.
         print(f"Thinking...", end="", flush=True)
         total_spikes = {"vision": 0, "text": 0, "assoc": 0}
         max_err = 0.0
@@ -192,23 +186,19 @@ def run_interactive(error_threshold: float = 0.3, use_teacher: bool = True, ckpt
         last_vision = sensory["vision"]
 
         for _ in range(20):
-            # 原我底噪
             somatic = proto.step()
             current_vision = sensory["vision"] + somatic[: hp.vision_dim]
             last_vision = current_vision
 
-            # Neuromodulation snapshot per step
             state_mod = proto.state()
             modulation = {"pain": state_mod["pain"], "curiosity": state_mod["curiosity"]}
 
-            # 运行一步 SNN
             step_input = {"vision": current_vision, "text": sensory["text"]}
             firing, pred_err, _ = snn.step(step_input, modulation_signals=modulation)
             last_firing = firing
             last_pred_err = pred_err
             last_modulation = modulation
 
-            # 累积统计
             total_spikes["vision"] += len(firing["vision"])
             total_spikes["text"] += len(firing["text"])
             total_spikes["assoc"] += len(firing["assoc"])
@@ -217,7 +207,6 @@ def run_interactive(error_threshold: float = 0.3, use_teacher: bool = True, ckpt
         print(f"\rAction complete. Max Err={max_err:.3f}")
         print(f"Total Spikes: v={total_spikes['vision']} t={total_spikes['text']} a={total_spikes['assoc']}")
 
-        # 使用 max_err 判断是否触发老师
         if teacher and max_err > error_threshold:
             ctx = {
                 "prediction_error_norm": float(max_err),
@@ -229,20 +218,17 @@ def run_interactive(error_threshold: float = 0.3, use_teacher: bool = True, ckpt
             status = "ok" if bridge_out.get("provider_ok") else "fallback"
             print("Teacher prompt:\n", bridge_out["prompt"])
             print(f"Teacher reply [{bridge_out['provider']}/{status}]: {bridge_out['reply']}")
-            # Store episodic memory grounded to assoc spikes.
             try:
                 embedding = snn.spikes_assoc.detach().to("cpu").float().tolist()
                 episodic.store_experience("SURPRISE", bridge_out["reply"], embedding)
                 concept = extract_concept_word(bridge_out["reply"])
                 if concept:
-                    # 以概念为文本刺激，再次绑定到当前视觉记忆
                     teacher_spikes = cortex.text_to_spikes(concept)
                     reinforce_input = {"vision": last_vision, "text": teacher_spikes}
                     snn.step(reinforce_input, modulation_signals=last_modulation)
                     snn.update_weights_hebbian(learning_rate=0.05, modulation_signals=last_modulation)
             except Exception as exc:
                 print(f"[warn] episodic store failed: {exc}")
-        # === 修改结束 ===
 
 
 if __name__ == "__main__":

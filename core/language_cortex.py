@@ -92,7 +92,7 @@ class LanguageCortex(nn.Module):
             rate_bank = torch.sigmoid(self.embedding(idx_list))
             sims = F.cosine_similarity(rates.unsqueeze(0), rate_bank, dim=1)
             topk = min(k, sims.numel())
-            values, indices = torch.topk(sims, k=topk, largest=True)
+            _, indices = torch.topk(sims, k=topk, largest=True)
 
         return [token_list[int(i)] for i in indices.tolist()]
 
