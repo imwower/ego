@@ -35,15 +35,30 @@ class CheckpointManager:
         """Load a checkpoint into provided modules and return metadata."""
 
         ckpt = torch.load(path, map_location="mps", weights_only=False)
-        snn.load_state_dict(ckpt["snn"])
+        self._load_partial(snn, ckpt["snn"])
         if "state_dict" in dir(cortex):
-            cortex.load_state_dict(ckpt.get("cortex", {}))
+            self._load_partial(cortex, ckpt.get("cortex", {}))
 
         proto.energy = ckpt["proto"]["energy"].to(proto.device)
         proto.pain = ckpt["proto"]["pain"].to(proto.device)
         proto.curiosity = ckpt["proto"]["curiosity"].to(proto.device)
 
         return {"step": ckpt.get("step", 0), "extras": ckpt.get("extras")}
+
+    def _load_partial(self, module: Any, state: Dict[str, Any]) -> None:
+        """Load matching-shaped tensors only; skip mismatches to allow dimension changes."""
+
+        if not state:
+            return
+        current = module.state_dict()
+        filtered = {}
+        for k, v in state.items():
+            if k in current and current[k].shape == v.shape:
+                filtered[k] = v
+        missing_keys = set(state.keys()) - set(filtered.keys())
+        if missing_keys:
+            print(f"[warn] skipped loading mismatched keys: {sorted(missing_keys)}")
+        module.load_state_dict(filtered, strict=False)
 
 
 __all__ = ["CheckpointManager"]
