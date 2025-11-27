@@ -145,23 +145,48 @@ def run_interactive(error_threshold: float = 0.3, use_teacher: bool = True, ckpt
         elif tokens[0] == "read":
             sensory["text"] = cortex.text_to_spikes(tokens[1])
 
-        # ProtoSelf noise keeps network alive; add to vision.
-        somatic = proto.step()
-        sensory["vision"] = sensory["vision"] + somatic[: hp.vision_dim]
+        # === 修改开始 ===
+        # 持续运行 20 个时间步，让信号充分传播
+        print(f"Thinking...", end="", flush=True)
+        total_spikes = {"vision": 0, "text": 0, "assoc": 0}
+        max_err = 0.0
+        last_firing = None
+        last_pred_err = None
+        last_modulation = None
+        last_vision = sensory["vision"]
 
-        state_mod = proto.state()
-        modulation = {"pain": state_mod["pain"], "curiosity": state_mod["curiosity"]}
-        firing, pred_err = snn.step(sensory, modulation_signals=modulation)
+        for _ in range(20):
+            # 原我底噪
+            somatic = proto.step()
+            current_vision = sensory["vision"] + somatic[: hp.vision_dim]
+            last_vision = current_vision
 
-        print(
-            f"err={pred_err['norm']:.3f} spikes: v={len(firing['vision'])} t={len(firing['text'])} a={len(firing['assoc'])}"
-        )
+            # Neuromodulation snapshot per step
+            state_mod = proto.state()
+            modulation = {"pain": state_mod["pain"], "curiosity": state_mod["curiosity"]}
 
-        if teacher and pred_err["norm"] > error_threshold:
+            # 运行一步 SNN
+            step_input = {"vision": current_vision, "text": sensory["text"]}
+            firing, pred_err = snn.step(step_input, modulation_signals=modulation)
+            last_firing = firing
+            last_pred_err = pred_err
+            last_modulation = modulation
+
+            # 累积统计
+            total_spikes["vision"] += len(firing["vision"])
+            total_spikes["text"] += len(firing["text"])
+            total_spikes["assoc"] += len(firing["assoc"])
+            max_err = max(max_err, pred_err["norm"].item())
+
+        print(f"\rAction complete. Max Err={max_err:.3f}")
+        print(f"Total Spikes: v={total_spikes['vision']} t={total_spikes['text']} a={total_spikes['assoc']}")
+
+        # 使用 max_err 判断是否触发老师
+        if teacher and max_err > error_threshold:
             ctx = {
-                "prediction_error_norm": float(pred_err["norm"].item()),
+                "prediction_error_norm": float(max_err),
                 "proto_state": proto.state(),
-                "recent_spikes": {k: v.tolist() for k, v in firing.items()},
+                "recent_spikes": {k: v.tolist() for k, v in (last_firing or {}).items()},
                 "notes": f"interactive cmd={cmd}",
             }
             bridge_out = teacher.ask_gemini(ctx, trigger_type="SURPRISE")
@@ -174,12 +199,14 @@ def run_interactive(error_threshold: float = 0.3, use_teacher: bool = True, ckpt
                 episodic.store_experience("SURPRISE", bridge_out["reply"], embedding)
                 concept = extract_concept_word(bridge_out["reply"])
                 if concept:
+                    # 以概念为文本刺激，再次绑定到当前视觉记忆
                     teacher_spikes = cortex.text_to_spikes(concept)
-                    reinforce_input = {"vision": sensory["vision"], "text": teacher_spikes}
-                    snn.step(reinforce_input, modulation_signals=modulation)
-                    snn.update_weights_hebbian(learning_rate=0.05, modulation_signals=modulation)
+                    reinforce_input = {"vision": last_vision, "text": teacher_spikes}
+                    snn.step(reinforce_input, modulation_signals=last_modulation)
+                    snn.update_weights_hebbian(learning_rate=0.05, modulation_signals=last_modulation)
             except Exception as exc:
                 print(f"[warn] episodic store failed: {exc}")
+        # === 修改结束 ===
 
 
 if __name__ == "__main__":
