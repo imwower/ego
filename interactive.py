@@ -224,9 +224,10 @@ def run_interactive(error_threshold: float = 0.3, use_teacher: bool = True, ckpt
                 concept = extract_concept_word(bridge_out["reply"])
                 if concept:
                     teacher_spikes = cortex.text_to_spikes(concept)
-                    reinforce_input = {"vision": last_vision, "text": teacher_spikes}
+                    reinforce_input = {"vision": sensory["vision"], "text": teacher_spikes}
                     snn.step(reinforce_input, modulation_signals=last_modulation)
-                    snn.update_weights_hebbian(learning_rate=0.05, modulation_signals=last_modulation)
+                    snn.update_weights_hebbian(learning_rate=0.1, modulation_signals=last_modulation)
+                    print(f"Learned connection: vision_state <-> {concept}")
             except Exception as exc:
                 print(f"[warn] episodic store failed: {exc}")
 

@@ -45,9 +45,9 @@ class HyperParams:
     curiosity_ceiling: float = 1.0
 
     # SNN region sizes
-    # Default to 32x32 flattened grayscale for CIFAR/vision alignment.
-    vision_dim: int = 1024
-    text_dim: int = 32
+    # Default to 16x16 flattened grayscale; richer text semantics.
+    vision_dim: int = 256
+    text_dim: int = 64
     assoc_dim: int = 128
 
     # Feedback coupling

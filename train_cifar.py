@@ -33,7 +33,7 @@ def get_cifar100_loader(root: str, batch_size: int, img_size: int) -> Tuple[Data
 
 def train_cifar(
     epochs: int = 1,
-    vision_dim: int = 1024,
+    vision_dim: int = 256,
     batch_size: int = 1,
     hebb_lr: float = 0.05,
     save_every: int = 1000,
