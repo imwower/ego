@@ -47,6 +47,7 @@ def train_cifar(
 
     hp = default_hparams()
     hp.vision_dim = vision_dim
+    hp.somatic_noise_dim = max(hp.somatic_noise_dim, vision_dim)
 
     proto = ProtoSelf(hparams=hp)
     snn = SNNEngine(hparams=hp)

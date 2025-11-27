@@ -78,4 +78,8 @@ def default_hparams() -> HyperParams:
     """Construct hyperparameters with validated device settings."""
 
     device = ensure_mps_device()
-    return HyperParams(device=device)
+    hp = HyperParams(device=device)
+    # Ensure somatic noise covers the vision dimension to avoid shape mismatch.
+    if hp.somatic_noise_dim < hp.vision_dim:
+        hp.somatic_noise_dim = hp.vision_dim
+    return hp
