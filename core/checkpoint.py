@@ -58,7 +58,14 @@ class CheckpointManager:
         missing_keys = set(state.keys()) - set(filtered.keys())
         if missing_keys:
             print(f"[warn] skipped loading mismatched keys: {sorted(missing_keys)}")
-        module.load_state_dict(filtered, strict=False)
+
+        if isinstance(module, torch.nn.Module):
+            module.load_state_dict(filtered, strict=False)
+        else:
+            # For non-nn.Module objects (e.g., SNNEngine), merge into current state and load.
+            merged = dict(current)
+            merged.update(filtered)
+            module.load_state_dict(merged)
 
 
 __all__ = ["CheckpointManager"]
