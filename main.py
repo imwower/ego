@@ -15,7 +15,7 @@ from typing import Dict, List, Optional
 import torch
 
 from config import default_hparams
-from core import EpisodicMemory, LanguageCortex, ProtoSelf, SNNEngine
+from core import CheckpointManager, EpisodicMemory, LanguageCortex, ProtoSelf, SNNEngine
 from bridge import TeacherBridge
 
 
@@ -161,6 +161,7 @@ def run_loop(stimuli: List[StimulusWindow], args: argparse.Namespace, label: str
     proto = ProtoSelf(hparams=hp)
     snn = SNNEngine(hparams=hp)
     cortex = LanguageCortex(hparams=hp)
+    ckpt_mgr = CheckpointManager(directory="checkpoints")
 
     teacher = None
     if not args.no_teacher:
@@ -173,6 +174,17 @@ def run_loop(stimuli: List[StimulusWindow], args: argparse.Namespace, label: str
         print(f"[warn] EpisodicMemory disabled: {exc}")
 
     last_teacher_step = -args.curiosity_cooldown
+
+    # Optional resume from the latest checkpoint.
+    try:
+        if os.path.exists(ckpt_mgr.directory):
+            files = sorted(os.listdir(ckpt_mgr.directory))
+            if files:
+                latest = files[-1]
+                ckpt_mgr.load(os.path.join(ckpt_mgr.directory, latest), snn, proto, cortex)
+                print(f"[Resume] Loaded brain state from {latest}")
+    except Exception:
+        print("[Init] Starting with a fresh brain.")
 
     print(
         f"[{label}] steps={args.steps} mode={label} provider={teacher.provider if teacher else 'none'} "
@@ -241,6 +253,11 @@ def run_loop(stimuli: List[StimulusWindow], args: argparse.Namespace, label: str
                 learning_rate=args.background_learning_rate,
                 modulation_signals=modulation,
             )
+
+        # Auto-save brain state periodically.
+        if t % 50 == 0:
+            save_path = ckpt_mgr.save(step=t, snn=snn, proto=proto, cortex=cortex)
+            print(f"[AutoSave] Progress saved to {save_path}")
 
         if t % args.log_every == 0 or bridge_out:
             print(
