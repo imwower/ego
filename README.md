@@ -101,6 +101,14 @@ GEMINI_API_KEY=your_api_key_here
 
   运行完整循环：多模态输入 → 困惑/好奇 → 调用 Gemini/Codex → 学习并在夜间梦境巩固。自定义脚本格式：`start-end;一句话文本;可选视觉模式(cat|dog|edge|dot|noise)`。
 
+- 场景 4：CIFAR-100 视觉-文本对齐 (Hebbian)
+
+  ```bash
+  python train_cifar.py --epochs 1 --vision-dim 256
+  ```
+
+  自动下载 CIFAR-100，灰度 16x16 展平，图文同时注入 SNN，使用 Hebb 更新完成视觉-概念对齐。
+
 ## 📂 项目结构 (Project Structure)
 
 ```plaintext
@@ -115,6 +123,7 @@ ego-sphere/
 │   └── teacher_api.py      # Gemini/Codex 调用接口
 ├── data/
 │   └── text_script.example # Phase 3 文本+视觉脚本示例
+├── train_cifar.py          # CIFAR-100 视觉-文本 Hebb 对齐训练
 ├── interactive.py          # 交互式 CLI
 ├── main.py                 # 模拟主循环（Demo/Active Learning）
 └── README.md
